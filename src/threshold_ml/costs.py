@@ -41,6 +41,20 @@ class CostModel:
         """Total cost when every transaction with ``score >= threshold`` is flagged."""
         return float(self.row_costs(labels, np.asarray(scores) >= threshold, amounts).sum())
 
+    def expected_cost_flags(self, probabilities: ArrayLike, amounts: ArrayLike) -> NDArray[np.bool_]:
+        """Flag where the expected cost of passing exceeds the expected cost of flagging.
+
+        Ties go to not flagging, matching the threshold search's preference for fewer alerts.
+        """
+        p, amounts = np.asarray(probabilities, dtype=float), np.asarray(amounts, dtype=float)
+        return p * self.loss_rate * amounts > self.review_cost + (1 - p) * self.false_positive_cost
+
+    def break_even_probability(self, amounts: ArrayLike) -> NDArray[np.float64]:
+        """Fraud probability above which flagging a payment of each amount pays off."""
+        denominator = self.loss_rate * np.asarray(amounts, dtype=float) + self.false_positive_cost
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(denominator > 0, (self.review_cost + self.false_positive_cost) / denominator, np.inf)
+
     def as_dict(self) -> dict[str, float]:
         return asdict(self)
 

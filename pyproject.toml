@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "threshold-ml"
-version = "0.2.0"
-description = "Cost-sensitive, leakage-controlled fraud detection with validation-frozen decision thresholds."
+version = "0.3.0"
+description = "Cost-sensitive, leakage-controlled fraud detection with calibrated, amount-aware decision policies."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -20,8 +20,10 @@ def test_run_writes_complete_artifacts(run_dir):
     for name in ["results.json", "REPORT.md", "evaluation.png"]:
         assert (run_dir / name).stat().st_size > 0
     results = json.loads((run_dir / "results.json").read_text())
-    assert results["selected_on_validation"] in results["models"]
-    assert set(results["bootstrap"]["models"]) == set(results["models"])
+    selected = results["selected_on_validation"]
+    assert selected["policy"] in results["models"][selected["model"]]["policies"]
+    assert set(results["bootstrap"]["average_precision"]) == set(results["models"])
+    assert len(results["bootstrap"]["decisions"]) == 2 * 4
     assert sum(split["rows"] for split in results["splits"].values()) == results["rows"] == 6_000
 
 
@@ -31,14 +33,25 @@ def test_saved_predictions_reproduce_reported_metrics(run_dir):
     costs = results["cost_assumptions"]
     for name, model in results["models"].items():
         predictions = pd.read_csv(run_dir / f"{name}_test_predictions.csv")
-        flagged, labels = predictions["flagged"].to_numpy(), predictions["label"].to_numpy()
-        cost = (
-            costs["review_cost"] * flagged.sum()
-            + costs["false_positive_cost"] * (flagged & (labels == 0)).sum()
-            + costs["loss_rate"] * predictions["amount"][~flagged & (labels == 1)].sum()
-        )
-        assert cost == pytest.approx(model["test"]["cost"])
-        assert model["test"]["confusion_matrix"]["tp"] == (flagged & (labels == 1)).sum()
+        labels = predictions["label"].to_numpy()
+        for policy_name, policy in model["policies"].items():
+            flagged = predictions[f"flagged_{policy_name}"].to_numpy()
+            cost = (
+                costs["review_cost"] * flagged.sum()
+                + costs["false_positive_cost"] * (flagged & (labels == 0)).sum()
+                + costs["loss_rate"] * predictions["amount"][~flagged & (labels == 1)].sum()
+            )
+            assert cost == pytest.approx(policy["test"]["cost"])
+            assert policy["test"]["confusion_matrix"]["tp"] == (flagged & (labels == 1)).sum()
+
+
+def test_amount_aware_decisions_follow_published_probabilities(run_dir):
+    results = json.loads((run_dir / "results.json").read_text())
+    costs = results["cost_assumptions"]
+    predictions = pd.read_csv(run_dir / "gradient_boosting_test_predictions.csv")
+    p, amount = predictions["probability_platt"], predictions["amount"]
+    expected = p * costs["loss_rate"] * amount > costs["review_cost"] + (1 - p) * costs["false_positive_cost"]
+    assert (predictions["flagged_amount_aware_platt"] == expected).all()
 
 
 def test_saved_bundle_scores_unlabelled_rows_identically(run_dir, tmp_path):
@@ -60,7 +73,10 @@ def test_saved_bundle_scores_unlabelled_rows_identically(run_dir, tmp_path):
     )
     scored = pd.read_csv(tmp_path / "scored.csv")
     assert np.allclose(scored["score"], predictions["score"])
-    assert (scored["flagged"] == (scored["score"] >= bundle.threshold)).all()
+    assert np.allclose(scored["probability_platt"], predictions["probability_platt"])
+    for policy_name in bundle.policies:
+        assert (scored[f"flagged_{policy_name}"] == predictions[f"flagged_{policy_name}"]).all()
+    assert (scored["flagged"] == scored[f"flagged_{bundle.preferred_policy}"]).all()
 
 
 def test_cli_reports_bad_costs_cleanly(capsys):

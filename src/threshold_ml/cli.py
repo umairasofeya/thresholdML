@@ -26,16 +26,18 @@ def _run(args: argparse.Namespace) -> None:
         output=Path(args.output),
         costs=CostModel(args.review_cost, args.false_positive_cost, args.loss_rate),
         n_bootstrap=args.bootstrap,
+        cross_fit_blocks=args.cross_fit_blocks,
     )
     results = run_experiment(config)
     selected = results["selected_on_validation"]
-    test = results["models"][selected]["test"]
+    model = results["models"][selected["model"]]
+    test = model["policies"][selected["policy"]]["test"]
     print(
         json.dumps(
             {
                 "source": results["data"]["source"],
-                "selected_on_validation": selected,
-                "test_average_precision": round(test["average_precision"], 4),
+                "selected_on_validation": f"{selected['model']} / {selected['policy']}",
+                "test_average_precision": round(model["average_precision"]["test"], 4),
                 "test_cost": round(test["cost"], 2),
                 "report": str(config.output / "REPORT.md"),
             },
@@ -49,7 +51,7 @@ def _score(args: argparse.Namespace) -> None:
     scored = bundle.score(pd.read_csv(args.input))
     scored.to_csv(args.output, index=False)
     print(
-        f"Scored {len(scored):,} rows with {bundle.name} (threshold {bundle.threshold:.6g}); "
+        f"Scored {len(scored):,} rows with {bundle.name} ({bundle.preferred_policy}); "
         f"{int(scored['flagged'].sum()):,} flagged → {args.output}"
     )
 
@@ -60,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-v", "--verbose", action="store_true", help="Log progress to stderr.")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    run = commands.add_parser("run", help="Train, select thresholds on validation and evaluate on test.")
+    run = commands.add_parser("run", help="Train, choose decision policies on validation and evaluate on test.")
     run.add_argument(
         "--source",
         choices=["synthetic", "download", "auto", "csv"],
@@ -73,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, default=42)
     run.add_argument("--output", default="results")
     run.add_argument("--bootstrap", type=int, default=1_000, help="Stratified bootstrap resamples on test.")
+    run.add_argument(
+        "--cross-fit-blocks", type=int, default=5, help="Contiguous validation blocks for cross-fitted policy costs."
+    )
     cost = run.add_argument_group("hypothetical cost model")
     cost.add_argument("--review-cost", type=float, default=2.0, help="Cost of reviewing any alert.")
     cost.add_argument("--false-positive-cost", type=float, default=5.0, help="Extra cost of a false alarm.")

@@ -22,7 +22,7 @@ def scored():
 
 def test_decision_metrics_agree_with_sklearn(scored):
     labels, scores, amounts = scored
-    metrics = decision_metrics(labels, scores, amounts, 0.6, CostModel())
+    metrics = decision_metrics(labels, scores >= 0.6, amounts, CostModel())
     assert metrics["precision"] == pytest.approx(precision_score(labels, scores >= 0.6))
     assert metrics["recall"] == pytest.approx(recall_score(labels, scores >= 0.6))
     cm = metrics["confusion_matrix"]
@@ -46,20 +46,32 @@ def test_calibration_of_perfectly_calibrated_scores():
     assert sum(b["count"] for b in summary["bins"]) == len(scores)
 
 
-def test_bootstrap_intervals_bracket_estimates_and_pair_models(scored):
+def test_bootstrap_intervals_bracket_estimates_and_pair_decisions(scored):
     labels, scores, amounts = scored
     result = bootstrap_test_metrics(
-        labels, amounts, {"a": scores, "b": scores}, {"a": 0.6, "b": 0.6}, CostModel(), n_resamples=200, seed=3
+        labels,
+        amounts,
+        {"model": scores},
+        {"a": scores >= 0.6, "b": scores >= 0.6, "c": scores >= 0.9},
+        CostModel(),
+        [("a", "b"), ("a", "c")],
+        n_resamples=200,
+        seed=3,
     )
-    for metric in result["models"]["a"].values():
+    ap = result["average_precision"]["model"]
+    assert ap["low"] <= ap["estimate"] <= ap["high"]
+    for metric in result["decisions"]["a"].values():
         assert metric["low"] <= metric["estimate"] <= metric["high"]
-    # Identical models on identical (paired) resamples: zero difference in every resample.
-    difference = result["paired_cost_difference"]["b_minus_a"]
-    assert difference["low"] == difference["high"] == 0
-    assert difference["share_b_cheaper"] == 0
+    identical, different = result["paired_cost_difference"]
+    # Identical rules on identical (paired) resamples: zero difference in every resample.
+    assert identical["low"] == identical["high"] == identical["share_candidate_cheaper"] == 0
+    assert different["low"] < different["high"]
 
 
 def test_bootstrap_is_deterministic(scored):
     labels, scores, amounts = scored
-    run = lambda: bootstrap_test_metrics(labels, amounts, {"a": scores}, {"a": 0.5}, CostModel(), n_resamples=50)  # noqa: E731
-    assert run()["models"] == run()["models"]
+
+    def run():
+        return bootstrap_test_metrics(labels, amounts, {"m": scores}, {"d": scores >= 0.5}, CostModel(), n_resamples=50)
+
+    assert run() == run()
