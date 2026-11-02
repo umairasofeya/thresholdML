@@ -1,6 +1,7 @@
 {
   "data": {
     "source": "synthetic",
+    "rows_requested": 20000,
     "seed": 42
   },
   "rows": 20000,
@@ -11,6 +12,7 @@
     "loss_rate": 1.0
   },
   "environment": {
+    "threshold_ml": "0.2.0",
     "python": "3.13.7",
     "sklearn": "1.9.1",
     "numpy": "2.5.4",
@@ -36,6 +38,7 @@
       "time_max": 172798.0
     }
   },
+  "selected_on_validation": "logistic_regression",
   "models": {
     "logistic_regression": {
       "validation": {
@@ -45,12 +48,12 @@
         "recall": 0.38095238095238093,
         "flagged": 166,
         "cost": 4085.39,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3796,
-          142,
-          39,
-          24
-        ]
+        "confusion_matrix": {
+          "tn": 3796,
+          "fp": 142,
+          "fn": 39,
+          "tp": 24
+        }
       },
       "test": {
         "threshold": 0.06763239732892738,
@@ -59,12 +62,12 @@
         "recall": 0.45652173913043476,
         "flagged": 236,
         "cost": 4495.78,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3724,
-          194,
-          50,
-          42
-        ]
+        "confusion_matrix": {
+          "tn": 3724,
+          "fp": 194,
+          "fn": 50,
+          "tp": 42
+        }
       },
       "test_at_0_5": {
         "threshold": 0.5,
@@ -73,11 +76,52 @@
         "recall": 0.010869565217391304,
         "flagged": 2,
         "cost": 5435.23,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3917,
-          1,
-          91,
-          1
+        "confusion_matrix": {
+          "tn": 3917,
+          "fp": 1,
+          "fn": 91,
+          "tp": 1
+        }
+      },
+      "calibration": {
+        "brier_score": 0.019915807830904804,
+        "expected_calibration_error": 0.005391846302622889,
+        "bins": [
+          {
+            "mean_score": 0.011451965615267344,
+            "fraud_rate": 0.015253360910031023,
+            "count": 3868
+          },
+          {
+            "mean_score": 0.14125443442703203,
+            "fraud_rate": 0.15306122448979592,
+            "count": 98
+          },
+          {
+            "mean_score": 0.24218869070119617,
+            "fraud_rate": 0.32,
+            "count": 25
+          },
+          {
+            "mean_score": 0.34856106045194046,
+            "fraud_rate": 0.42857142857142855,
+            "count": 14
+          },
+          {
+            "mean_score": 0.46859294865835555,
+            "fraud_rate": 1.0,
+            "count": 3
+          },
+          {
+            "mean_score": 0.5181995544272762,
+            "fraud_rate": 1.0,
+            "count": 1
+          },
+          {
+            "mean_score": 0.618991761480426,
+            "fraud_rate": 0.0,
+            "count": 1
+          }
         ]
       }
     },
@@ -88,13 +132,13 @@
         "precision": 0.1103448275862069,
         "recall": 0.25396825396825395,
         "flagged": 145,
-        "cost": 4106.44,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3809,
-          129,
-          47,
-          16
-        ]
+        "cost": 4106.4400000000005,
+        "confusion_matrix": {
+          "tn": 3809,
+          "fp": 129,
+          "fn": 47,
+          "tp": 16
+        }
       },
       "test": {
         "threshold": 0.04964743580877941,
@@ -102,13 +146,13 @@
         "precision": 0.1446280991735537,
         "recall": 0.3804347826086957,
         "flagged": 242,
-        "cost": 4882.0199999999995,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3711,
-          207,
-          57,
-          35
-        ]
+        "cost": 4882.02,
+        "confusion_matrix": {
+          "tn": 3711,
+          "fp": 207,
+          "fn": 57,
+          "tp": 35
+        }
       },
       "test_at_0_5": {
         "threshold": 0.5,
@@ -116,19 +160,113 @@
         "precision": 0.0,
         "recall": 0.0,
         "flagged": 1,
-        "cost": 5489.649999999999,
-        "confusion_matrix_tn_fp_fn_tp": [
-          3917,
-          1,
-          92,
-          0
+        "cost": 5489.65,
+        "confusion_matrix": {
+          "tn": 3917,
+          "fp": 1,
+          "fn": 92,
+          "tp": 0
+        }
+      },
+      "calibration": {
+        "brier_score": 0.02177337152428934,
+        "expected_calibration_error": 0.012934260256676822,
+        "bins": [
+          {
+            "mean_score": 0.008443967880005602,
+            "fraud_rate": 0.019652884124553342,
+            "count": 3918
+          },
+          {
+            "mean_score": 0.13552003813422167,
+            "fraud_rate": 0.18461538461538463,
+            "count": 65
+          },
+          {
+            "mean_score": 0.24507546959821475,
+            "fraud_rate": 0.15789473684210525,
+            "count": 19
+          },
+          {
+            "mean_score": 0.3343635207605456,
+            "fraud_rate": 0.0,
+            "count": 5
+          },
+          {
+            "mean_score": 0.44321557781778953,
+            "fraud_rate": 0.0,
+            "count": 2
+          },
+          {
+            "mean_score": 0.5439695800560274,
+            "fraud_rate": 0.0,
+            "count": 1
+          }
         ]
       }
     }
   },
-  "selected_on_validation": "logistic_regression",
   "test_baselines": {
-    "flag_none": 5482.649999999999,
+    "flag_none": 5482.65,
     "flag_all": 27610.0
+  },
+  "bootstrap": {
+    "n_resamples": 1000,
+    "confidence": 0.95,
+    "method": "stratified percentile bootstrap over test rows, thresholds frozen",
+    "models": {
+      "logistic_regression": {
+        "average_precision": {
+          "estimate": 0.23228926941003133,
+          "low": 0.1617557118543511,
+          "high": 0.33045036606123174
+        },
+        "precision": {
+          "estimate": 0.17796610169491525,
+          "low": 0.14042168094733803,
+          "high": 0.21590610345317604
+        },
+        "recall": {
+          "estimate": 0.45652173913043476,
+          "low": 0.358695652173913,
+          "high": 0.5546195652173911
+        },
+        "cost": {
+          "estimate": 4495.78,
+          "low": 3472.239250000001,
+          "high": 5871.7685
+        }
+      },
+      "gradient_boosting": {
+        "average_precision": {
+          "estimate": 0.11150885415185176,
+          "low": 0.0864605144279231,
+          "high": 0.15204118079917486
+        },
+        "precision": {
+          "estimate": 0.1446280991735537,
+          "low": 0.11243855421686748,
+          "high": 0.18032786885245902
+        },
+        "recall": {
+          "estimate": 0.3804347826086957,
+          "low": 0.29347826086956524,
+          "high": 0.4782608695652174
+        },
+        "cost": {
+          "estimate": 4882.02,
+          "low": 3854.9915000000005,
+          "high": 6212.380249999999
+        }
+      }
+    },
+    "paired_cost_difference": {
+      "gradient_boosting_minus_logistic_regression": {
+        "estimate": 386.2400000000007,
+        "low": -14.642749999999648,
+        "high": 832.7497500000006,
+        "share_gradient_boosting_cheaper": 0.028
+      }
+    }
   }
 }

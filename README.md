@@ -1,89 +1,108 @@
 # Threshold ML
 
-Threshold ML is a reproducible Python project for cost-sensitive credit card fraud detection, comparing logistic regression and histogram gradient boosting on chronological transaction splits, with engineered features and validation-selected financial decision thresholds.
+**Cost-sensitive credit card fraud detection, evaluated the way a deployment would actually face it.**
+Models train on the past, choose a decision threshold on a later period by minimising an explicit cost model, freeze that rule, and only then see the most recent period. Every reported number comes with a bootstrap interval.
 
-## Run locally
+![Evaluation on the public dataset](examples/public/evaluation.png)
 
-Python 3.11+ recommended. From the `threshold-ml` folder:
+## Results on 284,807 real transactions
 
-```sh
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pytest -q
-python fraud_detection.py --source synthetic --rows 20000 --output results
-```
+Chronological test set: the final 60,140 transactions, containing 77 frauds. Thresholds were frozen on validation before any test data was scored. 95% stratified bootstrap intervals are shown in brackets.
 
-Windows activation: `.venv\Scripts\activate`. Open `results/REPORT.md` and `results/evaluation.png`. The ZIP includes actual measured examples, trained model bundles, prediction CSVs and threshold curves under `examples/public/` and `examples/synthetic/`.
-
-## Public dataset
-
-The benchmark uses the public anonymized credit card fraud CSV referenced in the [TensorFlow tutorial](https://www.tensorflow.org/tutorials/structured_data/imbalanced_data) and the [original Kaggle listing](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud). Review the source terms before redistributing raw data. No raw public CSV is included here.
-
-```sh
-python fraud_detection.py --source download --output results/public
-# Try download, with an explicit, labeled synthetic fallback on failure:
-python fraud_detection.py --source auto --output results/auto
-# Use a downloaded copy:
-python fraud_detection.py --source csv --csv data/creditcard.csv --output results/public
-```
-
-If Python has local certificate issues, use your system's verified HTTPS downloader:
-
-```sh
-mkdir -p data
-curl --fail --location --retry 2 https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv --output data/creditcard.csv
-python fraud_detection.py --source csv --csv data/creditcard.csv --output results/public
-```
-
-Defaults use offline synthetic data. Explicit download mode fails loudly. Only auto mode falls back and records the reason. Local/download inputs receive SHA-256 hashes; retain the CSV and compare hashes for exact input reproduction. `--seed` defaults to 42. `requirements-lock.txt` records the verified environment; platform differences can affect floating point results.
-
-## Measured real-data results
-
-Full dataset: **284,807 transactions, 492 frauds**. Chronological test set: **60,140 transactions, 77 frauds**. See [results.json](examples/public/results.json) for full metrics, boundaries, versions and provenance.
-
-| Model | Test average precision | Precision | Recall | Hypothetical cost |
+| Model | Average precision | Precision | Recall | Hypothetical cost |
 |---|---:|---:|---:|---:|
-| Logistic regression | 0.7437 | 24.44% | 85.71% | 3,922.20 |
-| Histogram gradient boosting | 0.7878 | 86.36% | 74.03% | 3,851.44 |
+| Logistic regression | 0.744 [0.647, 0.827] | 24.4% [21.5, 27.7] | 85.7% [76.6, 92.2] | 3,922 [1,913, 6,948] |
+| **Gradient boosting** (selected) | 0.788 [0.698, 0.869] | 86.4% [78.3, 93.8] | 74.0% [63.6, 83.1] | 3,851 [1,145, 7,621] |
+| Flag nothing | — | — | 0% | 8,397 |
 
-Gradient boosting was selected by validation cost. At its frozen threshold of 0.389157 it flagged 66 test transactions: 57 true positives and 9 false positives, with 20 missed frauds. Its default 0.5 threshold had slightly **lower test cost (3,837.44)** than the validation-selected threshold. No test-driven retuning was performed. Flag-none cost was 8,396.81 under the same hypothetical assumptions. These are experimental costs, not realized savings.
+**What this shows:**
 
-![Real-data evaluation](examples/public/evaluation.png)
+- **Cost-aware thresholds halve losses** compared with flagging nothing: 3,851 vs 8,397. The selected rule raised 66 alerts (57 frauds caught, 9 false alarms, 20 missed).
+- **The two models are not distinguishable on cost.** Their paired cost difference is −71 [−1,376, +2,224], and boosting is cheaper in only 59% of paired resamples. They reach similar costs very differently: logistic regression flags 4× more transactions to catch more fraud. With 77 test frauds, the ranking is not statistically settled, and the bottom-right panel above shows why.
+- **Threshold choice matters more than model choice for logistic regression.** Its validation-chosen threshold (0.026) beats the default 0.5 by 774 cost units. For boosting, 0.5 happened to do slightly better on test (3,837 vs 3,851). That gap is well inside the noise, and the threshold was not retuned on test.
 
-## Design and leakage controls
+Full numbers are in [`examples/public/REPORT.md`](examples/public/REPORT.md) and [`results.json`](examples/public/results.json). The dataset hash is recorded in [`ACQUISITION.md`](examples/public/ACQUISITION.md).
 
-1. Validate Time, Amount, Class and V1–V28; reject invalid labels, missing/nonfinite values and negative times/amounts.
-2. Stable-sort by Time; assign 60/20/20 of **unique timestamps** to train/validation/test, keeping tied timestamps together. Row proportions therefore differ. Require both classes in each partition.
-3. Engineer only row-local features: V1–V28, log(1+Amount), sine/cosine of elapsed daily phase, and latent-vector magnitude. Daily phase is an assumed periodic signal, not verified local clock time. No invented customer histories are used.
-4. Fit scaling and both estimators on training only. Logistic regression uses StandardScaler and max_iter=1000. Boosting uses 120 iterations, 15 leaves, learning rate .08 and L2=5. Random internal early stopping is disabled. There is no oversampling, class weighting or hyperparameter search.
-5. Exactly sweep distinct validation scores, grouping ties and including flag-none. Minimize validation cost per model; choose the model by validation cost. Ties prefer fewer alerts. Freeze models and thresholds before evaluating test data; do not retrain on validation.
-6. Report average precision (AP), precision, recall, confusion counts, alert count and cost, including default-threshold and flag-all/none comparisons. AP is the step-weighted precision–recall summary, not trapezoidal PR area.
-
-`results.json` contains all metrics and assumptions. Prediction CSVs permit independent recomputation. Model bundles contain estimator, feature order, threshold and costs. Score validated new rows using `features(frame)` and the estimator's `predict_proba`, then compare to the saved threshold. Only load joblib files from trusted sources.
-
-## Hypothetical financial model
-
-All costs use a common currency unit: 2 per flagged transaction, an additional 5 for each flagged legitimate transaction, and 100% of Amount for each missed fraud. Thus cost = `2*(TP+FP) + 5*FP + sum(Amount for FN)`. Flagged fraud is assumed fully prevented. This simplifies recoveries, delays, imperfect interventions, capacity limits and customer lifetime effects.
+## Quick start
 
 ```sh
-python fraud_detection.py --review-cost 3 --false-positive-cost 10 --loss-rate 0.7
+make install         # venv + locked dependencies + editable package
+make test            # 36 tests, a few seconds
+make demo            # offline synthetic run → results/synthetic/
+make reproduce       # download + hash-check the public data, regenerate examples/
 ```
 
-Thresholds use a global score rule; amount enters validation costs but does not directly determine the action threshold. Scores are not claimed to be calibrated probabilities. Validation optimization does not guarantee lower future cost.
+Or directly:
 
-## Limits
+```sh
+pip install -e ".[dev]"
+threshold-ml run --source csv --csv data/creditcard.csv --output results/public
+threshold-ml run --review-cost 3 --false-positive-cost 10 --loss-rate 0.7   # alternative cost assumptions
+threshold-ml score --model results/public/gradient_boosting.joblib --input new.csv --output scored.csv
+```
 
-This pipeline's preprocessing/tuning cannot see future test rows. The public dataset's upstream PCA history is outside our control, so this cannot guarantee absence of leakage in source feature creation. Customer independence cannot be established without identifiers. The historical dataset is short and the test has only 77 frauds; a single holdout does not establish statistical superiority or production readiness. Real deployment needs longer out-of-time tests, delayed-label handling, uncertainty estimates, calibration, drift monitoring and a realistic review policy. Synthetic results demonstrate software behavior only. Do not repeatedly tune against the test set.
+`--source` accepts `synthetic` (the offline default), `csv`, `download` (fails loudly) or `auto`. `auto` falls back to synthetic data and records the fallback reason in the provenance block.
 
-## Files
+## Method
 
-- `fraud_detection.py`: runnable acquisition-to-report pipeline.
-- `tests/`: reproducibility, time boundaries, row-local features, exact threshold optimization and fallback checks.
-- `.github/workflows/tests.yml`: automated tests and offline smoke run.
-- `examples/public/`: real-data results, models, charts and acquisition record.
-- `examples/synthetic/`: separately labeled offline demo.
-- `CV.md`: measured CV description and interview context.
-- `VERIFICATION.md`: actual checks performed.
+| Stage | Choice | Why |
+|---|---|---|
+| Split | 60/20/20 over **unique timestamps**, in time order | No future rows in training; tied timestamps never straddle a boundary |
+| Features | V1–V28, `log1p(Amount)`, sin/cos of daily phase, latent-vector norm | Strictly row-local, so no label or cross-row leakage is possible |
+| Models | Standardised logistic regression; histogram gradient boosting (120 trees, 15 leaves, lr 0.08, L2 5) | Fixed in advance, with no hyperparameter search to overfit validation |
+| Imbalance | No resampling or class weights | The cost-optimal threshold absorbs the imbalance directly |
+| Threshold | Exact O(n log n) sweep over every distinct validation score, including flag-none; ties favour fewer alerts | Gives the true cost minimum, not a grid approximation ([`costs.py`](src/threshold_ml/costs.py)) |
+| Selection | Lowest validation cost, then fewest alerts | Test is never used for any choice |
+| Uncertainty | 1,000 stratified bootstrap resamples of test, models evaluated on the same resamples | Paired comparisons cancel shared noise; stratifying keeps the count of 77 frauds fixed |
+| Calibration | Brier score and ECE alongside the reliability curve | Shows whether scores can be read as probabilities |
 
-Upload this folder's contents to GitHub. Model binaries and new result/data folders are ignored by default; example CSVs, charts and metrics are included intentionally. No credentials or paid service is needed.
+### Cost model
+
+All costs are hypothetical, in one currency unit:
+
+```
+cost = review_cost × alerts + false_positive_cost × FP + loss_rate × Σ amount(missed frauds)
+```
+
+The defaults are 2, 5 and 1.0. A flagged fraud is assumed fully prevented. Because missed-fraud cost scales with the amount, the optimiser trades review workload against dollar exposure rather than raw counts.
+
+## Verification
+
+The test suite in [`tests/`](tests) checks:
+
+- the threshold optimiser against brute force over random tie-heavy inputs and random cost parameters
+- strict temporal boundaries, with ties forced together
+- that features are invariant to labels and to other rows
+- schema validation for every failure mode
+- that stratified resampling preserves class counts, and that identical models give zero paired difference
+- that a near-perfectly calibrated simulation yields ECE ≈ 0
+- end to end: metrics recomputed independently from the published prediction CSVs, and saved bundles that re-score unlabelled rows to identical outputs
+
+CI runs lint, format checks, the tests and a smoke run on Python 3.11–3.13.
+
+## Limitations
+
+- **One short, anonymised dataset.** It covers two days, and V1–V28 are upstream PCA outputs whose fitting we can't audit for leakage.
+- **No customer identifiers.** Per-card behavioural features, usually the strongest fraud signal, aren't possible.
+- **The intervals cover test sampling noise only.** They do not cover training or threshold-selection variability; a rolling-origin backtest would be the next step.
+- **The cost model is deliberately simple.** It ignores partial recoveries, review capacity limits, label delay and customer lifetime effects.
+- **Synthetic runs exercise the software, not the science.**
+
+## Layout
+
+```
+src/threshold_ml/
+  data.py         schema validation, synthetic generator, provenance-tracked loading
+  splits.py       chronological partitioning
+  features.py     row-local feature engineering
+  costs.py        CostModel and exact threshold optimiser
+  models.py       fixed candidate estimators
+  evaluation.py   metrics, calibration, paired stratified bootstrap
+  pipeline.py     two-phase experiment (fit/select → freeze → evaluate)
+  scoring.py      self-describing ModelBundle for inference
+  plots.py, report.py, cli.py
+examples/public/     real-data run: report, metrics, figure, predictions, threshold curves
+examples/synthetic/  offline demo run
+```
+
+Model bundles (`*.joblib`) are regenerated by `make reproduce` and are not committed. Only load joblib files you trust.

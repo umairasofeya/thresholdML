@@ -1,7 +1,11 @@
 # Dataset acquisition
 
-Downloaded on 2026-10-29 from https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv using curl with normal HTTPS certificate verification. Python's local certificate configuration prevented urllib from downloading, so the verified file was loaded through `--source csv`. The raw file was retained in the working directory and reused for the rebuild on 2026-10-30.
+Source: <https://storage.googleapis.com/download.tensorflow.org/data/creditcard.csv>, fetched with `curl` under normal HTTPS certificate verification and loaded via `--source csv`.
 
-SHA-256: `76274b691b16a6c49d3f159c883398e03ccd6d1ee12d9d8ee38f4b4b98551a89`
+| | |
+|---|---|
+| SHA-256 | `76274b691b16a6c49d3f159c883398e03ccd6d1ee12d9d8ee38f4b4b98551a89` |
+| Rows | 284,807 |
+| Frauds | 492 |
 
-Rows: 284,807; frauds: 492. Raw source data is not included in the ZIP. See README for acquisition and reproduction commands. Downloading the same bytes and using seed 42 with the locked environment reproduces the benchmark subject to platform floating point differences.
+The raw file is not redistributed here; review the source terms before doing so. `make reproduce` downloads it, verifies the hash and regenerates this directory. With the same bytes, seed 42 and `requirements-lock.txt`, results are reproducible up to platform floating-point differences.

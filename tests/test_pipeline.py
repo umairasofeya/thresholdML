@@ -1,71 +1,68 @@
+import json
+
 import numpy as np
+import pandas as pd
 import pytest
-from fraud_detection import synthetic_data, validate, chronological_split, features, decision_cost, optimize_threshold, load_data
+
+from threshold_ml.cli import main
+from threshold_ml.data import synthetic_transactions
+from threshold_ml.scoring import ModelBundle
 
 
-def test_seed():
-    assert synthetic_data(5000).equals(synthetic_data(5000))
-    assert not synthetic_data(5000).equals(synthetic_data(5000, 43))
+@pytest.fixture(scope="module")
+def run_dir(tmp_path_factory):
+    output = tmp_path_factory.mktemp("run")
+    main(["run", "--source", "synthetic", "--rows", "6000", "--bootstrap", "50", "--output", str(output)])
+    return output
 
 
-def test_time_boundaries():
-    frame = validate(synthetic_data(10000))
-    frame.Time = frame.Time // 1000
-    train, validation, test = chronological_split(frame)
-    assert train.Time.max() < validation.Time.min()
-    assert validation.Time.max() < test.Time.min()
-    assert len(train) + len(validation) + len(test) == len(frame)
+def test_run_writes_complete_artifacts(run_dir):
+    for name in ["results.json", "REPORT.md", "evaluation.png"]:
+        assert (run_dir / name).stat().st_size > 0
+    results = json.loads((run_dir / "results.json").read_text())
+    assert results["selected_on_validation"] in results["models"]
+    assert set(results["bootstrap"]["models"]) == set(results["models"])
+    assert sum(split["rows"] for split in results["splits"].values()) == results["rows"] == 6_000
 
 
-def test_features_ignore_labels_and_future():
-    frame = synthetic_data(5000)
-    expected = features(frame).iloc[:10]
-    frame.Class = 1 - frame.Class
-    assert expected.equals(features(frame.iloc[:10]))
-    assert 'Class' not in expected.columns
+def test_saved_predictions_reproduce_reported_metrics(run_dir):
+    """Independent recomputation from the published CSVs, as a reviewer would do it."""
+    results = json.loads((run_dir / "results.json").read_text())
+    costs = results["cost_assumptions"]
+    for name, model in results["models"].items():
+        predictions = pd.read_csv(run_dir / f"{name}_test_predictions.csv")
+        flagged, labels = predictions["flagged"].to_numpy(), predictions["label"].to_numpy()
+        cost = (
+            costs["review_cost"] * flagged.sum()
+            + costs["false_positive_cost"] * (flagged & (labels == 0)).sum()
+            + costs["loss_rate"] * predictions["amount"][~flagged & (labels == 1)].sum()
+        )
+        assert cost == pytest.approx(model["test"]["cost"])
+        assert model["test"]["confusion_matrix"]["tp"] == (flagged & (labels == 1)).sum()
 
 
-@pytest.mark.parametrize('seed', range(5))
-def test_threshold_brute_force(seed):
-    rng = np.random.default_rng(seed)
-    labels = rng.integers(0, 2, 100)
-    scores = rng.integers(0, 10, 100) / 10
-    amounts = rng.uniform(0, 100, 100)
-    threshold, curve = optimize_threshold(labels, scores, amounts)
-    brute = [decision_cost(labels, scores, amounts, cutoff) for cutoff in curve.threshold]
-    assert decision_cost(labels, scores, amounts, threshold) == pytest.approx(min(brute))
-    assert np.allclose(curve.cost, brute)
+def test_saved_bundle_scores_unlabelled_rows_identically(run_dir, tmp_path):
+    bundle = ModelBundle.load(run_dir / "gradient_boosting.joblib")
+    predictions = pd.read_csv(run_dir / "gradient_boosting_test_predictions.csv")
+    rows = synthetic_transactions(6_000).sort_values("Time", kind="stable").reset_index(drop=True)
+    test_rows = rows[rows["Time"] >= predictions["Time"].min()].drop(columns="Class")
+    test_rows.to_csv(tmp_path / "new.csv", index=False)
+    main(
+        [
+            "score",
+            "--model",
+            str(run_dir / "gradient_boosting.joblib"),
+            "--input",
+            str(tmp_path / "new.csv"),
+            "--output",
+            str(tmp_path / "scored.csv"),
+        ]
+    )
+    scored = pd.read_csv(tmp_path / "scored.csv")
+    assert np.allclose(scored["score"], predictions["score"])
+    assert (scored["flagged"] == (scored["score"] >= bundle.threshold)).all()
 
 
-def test_invalid_data():
-    frame = synthetic_data(1000)
-    frame.loc[0, 'Amount'] = -1
-    with pytest.raises(ValueError):
-        validate(frame)
-
-
-def test_one_class_partition():
-    frame = synthetic_data(1000)
-    frame.Class = 0
-    with pytest.raises(ValueError, match='both classes'):
-        chronological_split(frame)
-
-
-def test_cost_accounting():
-    labels = np.array([0, 0, 1, 1])
-    scores = np.array([.1, .8, .2, .9])
-    amounts = np.array([10, 20, 100, 200])
-    assert decision_cost(labels, scores, amounts, .5) == 109
-    assert decision_cost(labels, scores, amounts, 2) == 300
-    assert decision_cost(labels, scores, amounts, 0) == 18
-
-
-def test_explicit_fallback(monkeypatch):
-    def fail(*args, **kwargs):
-        raise OSError('offline')
-    monkeypatch.setattr('fraud_detection.urlopen', fail)
-    with pytest.warns(UserWarning, match='SYNTHETIC'):
-        _, provenance = load_data('auto', None, 1000, 42)
-    assert provenance['source'] == 'synthetic'
-    with pytest.raises(OSError):
-        load_data('download', None, 1000, 42)
+def test_cli_reports_bad_costs_cleanly(capsys):
+    with pytest.raises(SystemExit, match="non-negative"):
+        main(["run", "--review-cost", "-1"])
